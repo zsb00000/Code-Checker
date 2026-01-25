@@ -189,7 +189,7 @@ int run_with_redirect(const string &dir, const string &exe, const string &input,
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {0};
             jeli.BasicLimitInformation.LimitFlags =
                 JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-            jeli.ProcessMemoryLimit = 256 * 1024 * 1024;
+            jeli.ProcessMemoryLimit = 512 * 1024 * 1024;
             SetInformationJobObject(hJob, JobObjectExtendedLimitInformation,
                                     &jeli, sizeof(jeli));
             AssignProcessToJobObject(hJob, pi.hProcess);
