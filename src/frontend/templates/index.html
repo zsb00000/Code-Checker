@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>并行代码对拍器 (k次评测)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .config-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            align-items: end;
+        }
+        
+        .file-group { flex: 1; }
+        .k-group { width: 120px; }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .file-button {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background: #f8f9fa;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .file-button:hover { border-color: #667eea; background: #e9ecef; }
+        .file-button.has-file {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+        
+        input[type="file"] { display: none; }
+        
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #555;
+        }
+        
+        .start-btn {
+            width: 100%;
+            padding: 15px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .start-btn:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .start-btn:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .progress {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .stat-card.ac { background: #d4edda; color: #155724; }
+        .stat-card.wa { background: #f8d7da; color: #721c24; }
+        .stat-card.uke { background: #fff3cd; color: #856404; }
+        
+        .stat-number { font-size: 32px; margin-bottom: 5px; }
+        .stat-label { font-size: 14px; opacity: 0.8; }
+        
+        .details {
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            display: none;
+        }
+        
+        .detail-item {
+            padding: 8px;
+            margin: 4px 0;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: monospace;
+        }
+        
+        .detail-item.ac { background: #d4edda; }
+        .detail-item.wa { background: #f8d7da; }
+        .detail-item.uke { background: #fff3cd; }
+        
+        .toggle-details {
+            margin-top: 10px;
+            color: #667eea;
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 14px;
+        }
+        
+        .loading-text {
+            text-align: center;
+            color: #667eea;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 代码对拍器</h1>
+        <p class="subtitle">多线程并行评测系统 | 支持 k 次重复验证</p>
+        
+        <form id="judgeForm">
+            <div class="config-row">
+                <div class="file-group">
+                    <label>数据生成器 (make.cpp)</label>
+                    <div class="file-button" onclick="document.getElementById('make').click()">
+                        <span id="make-text">选择文件</span>
+                    </div>
+                    <input type="file" id="make" name="make" accept=".cpp" required>
+                </div>
+                
+                <div class="file-group">
+                    <label>标准答案 (ans.cpp)</label>
+                    <div class="file-button" onclick="document.getElementById('ans').click()">
+                        <span id="ans-text">选择文件</span>
+                    </div>
+                    <input type="file" id="ans" name="ans" accept=".cpp" required>
+                </div>
+                
+                <div class="file-group">
+                    <label>待验证代码 (unknown.cpp)</label>
+                    <div class="file-button" onclick="document.getElementById('unknown').click()">
+                        <span id="unknown-text">选择文件</span>
+                    </div>
+                    <input type="file" id="unknown" name="unknown" accept=".cpp" required>
+                </div>
+                
+                <div class="k-group">
+                    <label>运行次数 k</label>
+                    <input type="number" id="k" name="k" min="1" max="49" value="1" required>
+                </div>
+            </div>
+            
+            <div class="info-box">
+                <strong>评测策略：</strong><br>
+                • 并行运行 k 次评测（线程池自动调度）<br>
+                • ans.cpp：不限制时间/内存（仅防崩溃保护）<br>
+                • unknown.cpp：限制 2秒/256MB<br>
+                • 每次评测独立临时目录，互不干扰
+            </div>
+            
+            <button type="submit" class="start-btn" id="submitBtn">开始并行评测</button>
+        </form>
+        
+        <div class="progress" id="progress">
+            <div>评测进行中...</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="loading-text" id="loadingText">准备中...</div>
+        </div>
+        
+        <div id="results" style="display: none;">
+            <div class="stats">
+                <div class="stat-card ac">
+                    <div class="stat-number" id="acCount">0</div>
+                    <div class="stat-label">Accepted</div>
+                </div>
+                <div class="stat-card wa">
+                    <div class="stat-number" id="waCount">0</div>
+                    <div class="stat-label">Wrong Answer</div>
+                </div>
+                <div class="stat-card uke">
+                    <div class="stat-number" id="ukeCount">0</div>
+                    <div class="stat-label">Unknown Error</div>
+                </div>
+            </div>
+            
+            <div class="toggle-details" onclick="toggleDetails()">显示/隐藏详细结果</div>
+            
+            <div class="details" id="details"></div>
+        </div>
+    </div>
+    
+    <script>
+        // 文件选择显示
+        ['make', 'ans', 'unknown'].forEach(id => {
+            document.getElementById(id).addEventListener('change', function(e) {
+                const text = document.getElementById(id + '-text');
+                const button = text.parentElement;
+                if (e.target.files.length > 0) {
+                    text.textContent = e.target.files[0].name;
+                    button.classList.add('has-file');
+                }
+            });
+        });
+        
+        let detailsVisible = false;
+        function toggleDetails() {
+            const details = document.getElementById('details');
+            detailsVisible = !detailsVisible;
+            details.style.display = detailsVisible ? 'block' : 'none';
+        }
+        
+        document.getElementById('judgeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const k = parseInt(document.getElementById('k').value);
+            const formData = new FormData();
+            formData.append('make', document.getElementById('make').files[0]);
+            formData.append('ans', document.getElementById('ans').files[0]);
+            formData.append('unknown', document.getElementById('unknown').files[0]);
+            formData.append('k', k);
+            
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('progress').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('details').innerHTML = '';
+            
+            // 模拟进度条（因为后端是批量返回，这里用动画表示正在运行）
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += 100 / (k * 2);  // 粗略估计
+                if (progress > 90) progress = 90;
+                document.getElementById('progressFill').style.width = progress + '%';
+                document.getElementById('loadingText').textContent = 
+                    `正在并行运行 ${k} 组评测... (使用线程池加速)`;
+            }, 500);
+            
+            try {
+                const response = await fetch('/judge', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                clearInterval(progressInterval);
+                document.getElementById('progressFill').style.width = '100%';
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('错误: ' + data.error);
+                    document.getElementById('submitBtn').disabled = false;
+                    document.getElementById('progress').style.display = 'none';
+                    return;
+                }
+                
+                // 显示统计
+                document.getElementById('acCount').textContent = data.ac;
+                document.getElementById('waCount').textContent = data.wa;
+                document.getElementById('ukeCount').textContent = data.uke;
+                
+                // 显示详细结果
+                const detailsDiv = document.getElementById('details');
+                detailsDiv.innerHTML = '';
+                data.results.forEach(r => {
+                    const div = document.createElement('div');
+                    div.className = 'detail-item ' + r.result.toLowerCase();
+                    div.textContent = `[${r.result}] ${r.message}`;
+                    detailsDiv.appendChild(div);
+                });
+                
+                document.getElementById('results').style.display = 'block';
+                
+            } catch (error) {
+                alert('请求失败: ' + error.message);
+            } finally {
+                document.getElementById('submitBtn').disabled = false;
+                setTimeout(() => {
+                    document.getElementById('progress').style.display = 'none';
+                }, 500);
+            }
+        });
+    </script>
+</body>
+</html>
