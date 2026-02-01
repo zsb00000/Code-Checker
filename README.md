@@ -169,3 +169,8 @@ python app.py
 ## License
 
 MIT License
+
+## 使用说明
+见[这里](https://github.com/zsb00000/Code-Checker/blob/main/HowToUse.md)
+
+如果您在使用中发现了Bug，欢迎您提issue或发起PR，我将感谢您的贡献。
