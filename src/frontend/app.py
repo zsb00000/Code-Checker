@@ -39,11 +39,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 logger.info(f"Data directory: {DATA_DIR}")
 
 # C++ 可执行文件路径（Windows 下为 .exe）
-JUDGE_EXE = os.path.join(BACKEND_DIR, 'judge_parallel.exe')
+JUDGE_EXE = os.path.join(BACKEND_DIR, 'judge.exe')
 
 # 如果 Windows 下找不到 .exe，尝试无后缀版本（Linux/Mac 兼容）
 if not os.path.exists(JUDGE_EXE):
-    JUDGE_EXE = os.path.join(BACKEND_DIR, 'judge_parallel')
+    JUDGE_EXE = os.path.join(BACKEND_DIR, 'judge')
 
 def check_backend():
     """检查后端可执行文件是否存在"""
@@ -61,7 +61,7 @@ def index():
         <p>{msg}</p>
         <p>Please compile the C++ backend first:</p>
         <pre>cd src/backend
-g++ -O2 -std=c++17 -I ../../include -pthread -o judge_parallel judge_parallel.cpp</pre>
+g++ -O2 -std=c++17 -I ../../include -pthread -o judge judge.cpp</pre>
         """, 500
     return render_template('index.html')
 
