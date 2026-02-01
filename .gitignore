@@ -3,3 +3,13 @@
 
 /test
 #忽略测试目录
+
+/src/frontend/log
+*.log
+#忽略日志目录
+
+/src/frontend/data
+#忽略数据文件目录
+
+/.vscode
+#忽略VSCode配置目录

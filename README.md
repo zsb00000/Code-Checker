@@ -1,14 +1,14 @@
 
 # Code Checker (代码对拍器)
 
-基于 C++ 多线程后端 + Python Flask 前端的代码评测系统，支持对拍测试（Make-Ans-Unknown 模式），适用于 Windows 平台。
+基于 C++ 多线程后端 + Python Flask 前端的代码评测系统，支持对拍测试，适用于 Windows 平台。
 
 ## 功能特性
 
 - **多线程并行评测**：支持同时运行 k 组（k < 50）评测任务，充分利用多核 CPU
 - **严格的资源隔离**：每个评测任务使用独立临时目录，互不干扰
 - **差异化资源限制**：
-  - `unknown.cpp`：限制 2 秒 CPU 时间，512MB 内存
+  - `unknown.cpp`：自行设置运行时空限制
   - `ans.cpp`：不限制时间/内存（仅设置 60 秒/4GB 防崩溃保护）
 - **智能文件比对**：自动忽略行尾空格和文件末尾空行
 - **Web 可视化界面**：基于 Flask 的友好前端，实时显示进度和结果
@@ -37,7 +37,7 @@ Code-Checker/
 - **操作系统**：Windows 7/10/11 (x64)
 - **编译器**：MinGW-w64 或 MSYS2（提供 g++ 命令）
 - **Python**：Python 3.7+（推荐 3.9+）
-- **依赖库**：Flask (`pip install flask`)
+- **依赖库**：Flask (需`pip install flask`)
 
 ## 安装部署
 
@@ -47,10 +47,10 @@ Code-Checker/
 
 ```powershell
 cd src/backend
-g++ -O2 -std=c++17 -pthread -o judge_parallel judge_parallel.cpp
+g++ -O2 -std=c++17 -pthread -o judge.exe judge.cpp
 ```
 
-编译成功后，会生成 `judge_parallel.exe`。
+编译成功后，会生成 `judge.exe`。
 
 ### 2. 安装 Python 依赖
 
@@ -96,13 +96,13 @@ python app.py
 
 ### 结果说明
 
-- **AC (Accepted)**：unknown.cpp 输出与 ans.cpp 完全一致（忽略行尾空格）
-- **WA (Wrong Answer)**：输出存在差异
-- **UKE (Unknown Error)**：
-  - 编译错误
-  - 运行时错误（段错误、除零等）
-  - 超时（TLE，仅针对 unknown.cpp）
-  - 内存超限（MLE，仅针对 unknown.cpp）
+- **AC **：unknown.cpp 输出与 ans.cpp 完全一致（忽略行尾空格）
+- **WA **：输出存在差异
+- **UKE **：未知的错误，如ans.cpp或make.cpp出错
+- **CE**：编译错误
+- **RE**：运行时错误（段错误、除零等）
+- **TLE**：超时（仅针对 unknown.cpp）
+- **MLE**：内存超限（仅针对 unknown.cpp）
 
 ## 评测流程
 
@@ -155,6 +155,16 @@ python app.py
 - **编译失败（UKE）**：检查 g++ 是否安装，或查看临时目录中的 `compile_err.txt`
 - **运行时错误（UKE）**：检查是否数组越界、栈溢出（Windows 默认栈较小）
 - **随机 WA/UKE**：通常是 Windows 文件系统延迟导致，如出现可以降低并发数或增加 `Sleep` 延迟
+
+## **更新日志**
+
+- 2026.2.1
+
+  - 添加了多种语言标准
+
+  - 运行添加了时空限制
+
+  - 添加了日志系统
 
 ## License
 

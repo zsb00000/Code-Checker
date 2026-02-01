@@ -1,51 +1,71 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>并行代码对拍器 (k次评测)</title>
+    <title>代码对拍器</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
-        
+
         .container {
-            max-width: 900px;
+            max-width: 1100px;
             margin: 0 auto;
             background: white;
             border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             padding: 40px;
         }
-        
+
         h1 {
             text-align: center;
             color: #333;
             margin-bottom: 10px;
         }
-        
+
         .subtitle {
             text-align: center;
             color: #666;
             margin-bottom: 30px;
             font-size: 14px;
         }
-        
+
         .config-row {
             display: flex;
-            gap: 20px;
+            gap: 15px;
             margin-bottom: 20px;
             align-items: end;
+            flex-wrap: wrap;
         }
-        
-        .file-group { flex: 1; }
-        .k-group { width: 120px; }
-        
+
+        .file-group {
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .limit-group {
+            width: 140px;
+        }
+
+        .std-group {
+            width: 150px;
+        }
+
+        .k-group {
+            width: 120px;
+        }
+
         label {
             display: block;
             margin-bottom: 8px;
@@ -53,15 +73,35 @@
             font-weight: 600;
             font-size: 14px;
         }
-        
-        input[type="number"] {
+
+        input[type="number"],
+        select {
             width: 100%;
             padding: 12px;
             border: 2px solid #ddd;
             border-radius: 8px;
             font-size: 16px;
         }
-        
+
+        select {
+            background: white;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14L2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 12px;
+            cursor: pointer;
+        }
+
+        select:focus,
+        input:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
         .file-button {
             display: block;
             width: 100%;
@@ -75,16 +115,22 @@
             color: #666;
             font-size: 14px;
         }
-        
-        .file-button:hover { border-color: #667eea; background: #e9ecef; }
+
+        .file-button:hover {
+            border-color: #667eea;
+            background: #e9ecef;
+        }
+
         .file-button.has-file {
             background: #d4edda;
             border-color: #28a745;
             color: #155724;
         }
-        
-        input[type="file"] { display: none; }
-        
+
+        input[type="file"] {
+            display: none;
+        }
+
         .info-box {
             background: #e7f3ff;
             border-left: 4px solid #667eea;
@@ -94,7 +140,13 @@
             font-size: 13px;
             color: #555;
         }
-        
+
+        .info-box strong {
+            color: #333;
+            display: block;
+            margin-bottom: 8px;
+        }
+
         .start-btn {
             width: 100%;
             padding: 15px;
@@ -108,15 +160,18 @@
             transition: all 0.3s;
             margin-top: 10px;
         }
-        
+
         .start-btn:hover:not(:disabled) {
             background: #5568d3;
             transform: translateY(-2px);
             box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
         }
-        
-        .start-btn:disabled { background: #ccc; cursor: not-allowed; }
-        
+
+        .start-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
         .progress {
             margin-top: 30px;
             padding: 20px;
@@ -124,7 +179,7 @@
             border-radius: 10px;
             display: none;
         }
-        
+
         .progress-bar {
             width: 100%;
             height: 20px;
@@ -133,78 +188,282 @@
             overflow: hidden;
             margin-top: 10px;
         }
-        
+
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #667eea, #764ba2);
             width: 0%;
             transition: width 0.3s;
         }
-        
+
         .stats {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
             margin-top: 20px;
         }
-        
+
+        @media (max-width: 1200px) {
+            .stats {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
         .stat-card {
-            padding: 20px;
+            padding: 15px;
             border-radius: 10px;
             text-align: center;
             font-weight: 600;
+            transition: transform 0.3s;
         }
-        
-        .stat-card.ac { background: #d4edda; color: #155724; }
-        .stat-card.wa { background: #f8d7da; color: #721c24; }
-        .stat-card.uke { background: #fff3cd; color: #856404; }
-        
-        .stat-number { font-size: 32px; margin-bottom: 5px; }
-        .stat-label { font-size: 14px; opacity: 0.8; }
-        
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card.ac {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .stat-card.wa {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .stat-card.re {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .stat-card.tle {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .stat-card.mle {
+            background: #d6d8d9;
+            color: #383d41;
+        }
+
+        .stat-card.ce {
+            background: #f5c6cb;
+            color: #721c24;
+        }
+
+        .stat-card.uke {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
         .details {
             margin-top: 20px;
-            max-height: 400px;
+            max-height: 600px;
             overflow-y: auto;
             border: 1px solid #ddd;
             border-radius: 8px;
-            padding: 10px;
+            padding: 15px;
             display: none;
+            background: #f9f9f9;
         }
-        
+
         .detail-item {
-            padding: 8px;
-            margin: 4px 0;
-            border-radius: 4px;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 6px;
             font-size: 13px;
-            font-family: monospace;
+            font-family: 'Consolas', 'Monaco', monospace;
+            border-left: 4px solid;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-        
-        .detail-item.ac { background: #d4edda; }
-        .detail-item.wa { background: #f8d7da; }
-        .detail-item.uke { background: #fff3cd; }
-        
+
+        .detail-item.ac {
+            border-left-color: #28a745;
+        }
+
+        .detail-item.wa {
+            border-left-color: #dc3545;
+        }
+
+        .detail-item.re {
+            border-left-color: #ffc107;
+        }
+
+        .detail-item.tle {
+            border-left-color: #17a2b8;
+        }
+
+        .detail-item.mle {
+            border-left-color: #6c757d;
+        }
+
+        .detail-item.ce {
+            border-left-color: #dc3545;
+        }
+
+        .detail-item.uke {
+            border-left-color: #6c757d;
+        }
+
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .detail-title {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .detail-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .download-btn {
+            padding: 6px 12px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.3s;
+        }
+
+        .download-btn:hover {
+            background: #545b62;
+        }
+
+        .download-btn.input {
+            background: #17a2b8;
+        }
+
+        .download-btn.input:hover {
+            background: #138496;
+        }
+
+        .download-btn.expected {
+            background: #28a745;
+        }
+
+        .download-btn.expected:hover {
+            background: #218838;
+        }
+
+        .download-btn.output {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .download-btn.output:hover {
+            background: #e0a800;
+        }
+
+        .detail-message {
+            color: #666;
+            margin-top: 5px;
+            font-size: 12px;
+        }
+
         .toggle-details {
-            margin-top: 10px;
+            margin-top: 15px;
             color: #667eea;
             cursor: pointer;
             text-decoration: underline;
             font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            transition: background 0.3s;
         }
-        
+
+        .toggle-details:hover {
+            background: #e9ecef;
+        }
+
         .loading-text {
             text-align: center;
             color: #667eea;
             margin-top: 10px;
             font-weight: 600;
         }
+
+        .config-info {
+            display: flex;
+            justify-content: space-between;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 14px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .config-info-item {
+            text-align: center;
+            flex: 1;
+            min-width: 100px;
+        }
+
+        .config-info-label {
+            color: #6c757d;
+            font-size: 12px;
+        }
+
+        .config-info-value {
+            font-weight: 600;
+            color: #333;
+            margin-top: 5px;
+        }
+
+        .file-list {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .file-list-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
-        <h1>🎯 代码对拍器</h1>
-        <p class="subtitle">多线程并行评测系统 | 支持 k 次重复验证</p>
-        
+        <h1>代码对拍器</h1>
+        <p class="subtitle">支持多次重复验证 | 完整错误诊断 | 自动保存错误文件</p>
+
         <form id="judgeForm">
             <div class="config-row">
                 <div class="file-group">
@@ -214,7 +473,7 @@
                     </div>
                     <input type="file" id="make" name="make" accept=".cpp" required>
                 </div>
-                
+
                 <div class="file-group">
                     <label>标准答案 (ans.cpp)</label>
                     <div class="file-button" onclick="document.getElementById('ans').click()">
@@ -222,7 +481,7 @@
                     </div>
                     <input type="file" id="ans" name="ans" accept=".cpp" required>
                 </div>
-                
+
                 <div class="file-group">
                     <label>待验证代码 (unknown.cpp)</label>
                     <div class="file-button" onclick="document.getElementById('unknown').click()">
@@ -230,24 +489,51 @@
                     </div>
                     <input type="file" id="unknown" name="unknown" accept=".cpp" required>
                 </div>
-                
+
                 <div class="k-group">
                     <label>运行次数 k</label>
-                    <input type="number" id="k" name="k" min="1" max="49" value="1" required>
+                    <input type="number" id="k" name="k" min="1" max="49" value="10" required>
                 </div>
             </div>
-            
-            <div class="info-box">
-                <strong>评测策略：</strong><br>
-                • 并行运行 k 次评测（线程池自动调度）<br>
-                • ans.cpp：不限制时间/内存（仅防崩溃保护）<br>
-                • unknown.cpp：限制 2秒/256MB<br>
-                • 每次评测独立临时目录，互不干扰
+
+            <div class="config-row">
+                <div class="std-group">
+                    <label>C++ 语言标准</label>
+                    <select id="std_version" name="std_version">
+                        <option value="c++14" selected>C++14 (推荐)</option>
+                        <option value="c++11">C++11</option>
+                        <option value="c++17">C++17</option>
+                        <option value="c++98">C++98</option>
+                        <option value="c++20">C++20</option>
+                    </select>
+                </div>
+
+                <div class="limit-group">
+                    <label>时间限制 (ms)</label>
+                    <input type="number" id="time_limit" name="time_limit" min="1" max="10000" value="2000" required>
+                </div>
+
+                <div class="limit-group">
+                    <label>内存限制 (MB)</label>
+                    <input type="number" id="memory_limit" name="memory_limit" min="1" max="1024" value="512" required>
+                </div>
             </div>
-            
-            <button type="submit" class="start-btn" id="submitBtn">开始并行评测</button>
+
+            <div class="info-box">
+                <strong>评测策略：</strong>
+                <ul style="margin-top: 5px; padding-left: 20px;">
+                    <li>运行多次评测</li>
+                    <li>语言标准: <span id="selectedStd">C++14</span></li>
+                    <li>时间限制: <span id="selectedTime">2000</span>ms (max: 10000ms)</li>
+                    <li>内存限制: <span id="selectedMemory">512</span>MB (max: 1024MB)</li>
+                    <li>错误文件自动保存至 data/ 目录（WA/RE/TLE/MLE）</li>
+                    <li>可通过下方"详细结果"下载具体的输入输出数据</li>
+                </ul>
+            </div>
+
+            <button type="submit" class="start-btn" id="submitBtn">开始评测</button>
         </form>
-        
+
         <div class="progress" id="progress">
             <div>评测进行中...</div>
             <div class="progress-bar">
@@ -255,8 +541,12 @@
             </div>
             <div class="loading-text" id="loadingText">准备中...</div>
         </div>
-        
+
         <div id="results" style="display: none;">
+            <div class="config-info" id="configSummary">
+                <!-- 配置摘要将通过JS动态生成 -->
+            </div>
+
             <div class="stats">
                 <div class="stat-card ac">
                     <div class="stat-number" id="acCount">0</div>
@@ -266,22 +556,38 @@
                     <div class="stat-number" id="waCount">0</div>
                     <div class="stat-label">Wrong Answer</div>
                 </div>
+                <div class="stat-card re">
+                    <div class="stat-number" id="reCount">0</div>
+                    <div class="stat-label">Runtime Error</div>
+                </div>
+                <div class="stat-card tle">
+                    <div class="stat-number" id="tleCount">0</div>
+                    <div class="stat-label">Time Limit</div>
+                </div>
+                <div class="stat-card mle">
+                    <div class="stat-number" id="mleCount">0</div>
+                    <div class="stat-label">Memory Limit</div>
+                </div>
+                <div class="stat-card ce">
+                    <div class="stat-number" id="ceCount">0</div>
+                    <div class="stat-label">Compile Error</div>
+                </div>
                 <div class="stat-card uke">
                     <div class="stat-number" id="ukeCount">0</div>
                     <div class="stat-label">Unknown Error</div>
                 </div>
             </div>
-            
-            <div class="toggle-details" onclick="toggleDetails()">显示/隐藏详细结果</div>
-            
+
+            <div class="toggle-details" onclick="toggleDetails()">📋 显示/隐藏详细结果</div>
+
             <div class="details" id="details"></div>
         </div>
     </div>
-    
+
     <script>
         // 文件选择显示
         ['make', 'ans', 'unknown'].forEach(id => {
-            document.getElementById(id).addEventListener('change', function(e) {
+            document.getElementById(id).addEventListener('change', function (e) {
                 const text = document.getElementById(id + '-text');
                 const button = text.parentElement;
                 if (e.target.files.length > 0) {
@@ -290,78 +596,173 @@
                 }
             });
         });
-        
+
+        // 配置参数变化时更新显示
+        function updateConfigDisplay() {
+            document.getElementById('selectedStd').textContent =
+                document.getElementById('std_version').options[document.getElementById('std_version').selectedIndex].text;
+            document.getElementById('selectedTime').textContent =
+                document.getElementById('time_limit').value;
+            document.getElementById('selectedMemory').textContent =
+                document.getElementById('memory_limit').value;
+        }
+
+        document.getElementById('std_version').addEventListener('change', updateConfigDisplay);
+        document.getElementById('time_limit').addEventListener('input', updateConfigDisplay);
+        document.getElementById('memory_limit').addEventListener('input', updateConfigDisplay);
+        document.addEventListener('DOMContentLoaded', updateConfigDisplay);
+
         let detailsVisible = false;
         function toggleDetails() {
             const details = document.getElementById('details');
             detailsVisible = !detailsVisible;
             details.style.display = detailsVisible ? 'block' : 'none';
+            document.querySelector('.toggle-details').textContent =
+                detailsVisible ? '📋 隐藏详细结果' : '📋 显示/隐藏详细结果';
         }
-        
-        document.getElementById('judgeForm').addEventListener('submit', async function(e) {
+
+        function getResultClass(result) {
+            const map = { 'AC': 'ac', 'WA': 'wa', 'RE': 're', 'TLE': 'tle', 'MLE': 'mle', 'CE': 'ce', 'UKE': 'uke' };
+            return map[result] || 'uke';
+        }
+
+        // 生成下载按钮HTML
+        function generateDownloadButtons(taskId, filesSaved) {
+            if (!filesSaved) return '';
+
+            const buttons = [
+                { type: 'input', label: '输入', class: 'input' },
+                { type: 'expected', label: '期望输出', class: 'expected' },
+                { type: 'output', label: '实际输出', class: 'output' },
+                { type: 'log', label: '日志', class: '' }
+            ];
+
+            return buttons.map(btn =>
+                `<a href="/download/${taskId}/${btn.type}" class="download-btn ${btn.class}" download>
+                    下载${btn.label}
+                </a>`
+            ).join('');
+        }
+
+        document.getElementById('judgeForm').addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             const k = parseInt(document.getElementById('k').value);
+            const std_version = document.getElementById('std_version').value;
+            const time_limit = parseInt(document.getElementById('time_limit').value);
+            const memory_limit = parseInt(document.getElementById('memory_limit').value);
+
             const formData = new FormData();
             formData.append('make', document.getElementById('make').files[0]);
             formData.append('ans', document.getElementById('ans').files[0]);
             formData.append('unknown', document.getElementById('unknown').files[0]);
             formData.append('k', k);
-            
-            document.getElementById('submitBtn').disabled = true;
+            formData.append('std_version', std_version);
+            formData.append('time_limit', time_limit);
+            formData.append('memory_limit', memory_limit);
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span>评测中...</span>';
+
             document.getElementById('progress').style.display = 'block';
             document.getElementById('results').style.display = 'none';
             document.getElementById('details').innerHTML = '';
-            
-            // 模拟进度条（因为后端是批量返回，这里用动画表示正在运行）
+
             let progress = 0;
             const progressInterval = setInterval(() => {
-                progress += 100 / (k * 2);  // 粗略估计
+                progress += 100 / (k * 2);
                 if (progress > 90) progress = 90;
                 document.getElementById('progressFill').style.width = progress + '%';
-                document.getElementById('loadingText').textContent = 
-                    `正在并行运行 ${k} 组评测... (使用线程池加速)`;
+                document.getElementById('loadingText').textContent =
+                    `正在并行运行 ${k} 组评测 (标准: ${std_version.toUpperCase()})`;
             }, 500);
-            
+
             try {
                 const response = await fetch('/judge', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 clearInterval(progressInterval);
                 document.getElementById('progressFill').style.width = '100%';
-                
+
                 const data = await response.json();
-                
+
                 if (data.error) {
                     alert('错误: ' + data.error);
-                    document.getElementById('submitBtn').disabled = false;
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '开始并行评测';
                     document.getElementById('progress').style.display = 'none';
                     return;
                 }
-                
+
+                // 更新配置摘要
+                document.getElementById('configSummary').innerHTML = `
+                    <div class="config-info-item">
+                        <div class="config-info-label">语言标准</div>
+                        <div class="config-info-value">${data.std_version.toUpperCase()}</div>
+                    </div>
+                    <div class="config-info-item">
+                        <div class="config-info-label">时间限制</div>
+                        <div class="config-info-value">${data.time_limit}ms</div>
+                    </div>
+                    <div class="config-info-item">
+                        <div class="config-info-label">内存限制</div>
+                        <div class="config-info-value">${data.memory_limit}MB</div>
+                    </div>
+                    <div class="config-info-item">
+                        <div class="config-info-label">总任务数</div>
+                        <div class="config-info-value">${data.total}</div>
+                    </div>
+                    <div class="config-info-item">
+                        <div class="config-info-label">通过率</div>
+                        <div class="config-info-value">${((data.ac / data.total) * 100).toFixed(1)}%</div>
+                    </div>
+                `;
+
                 // 显示统计
-                document.getElementById('acCount').textContent = data.ac;
-                document.getElementById('waCount').textContent = data.wa;
-                document.getElementById('ukeCount').textContent = data.uke;
-                
+                document.getElementById('acCount').textContent = data.ac || 0;
+                document.getElementById('waCount').textContent = data.wa || 0;
+                document.getElementById('reCount').textContent = data.re || 0;
+                document.getElementById('tleCount').textContent = data.tle || 0;
+                document.getElementById('mleCount').textContent = data.mle || 0;
+                document.getElementById('ceCount').textContent = data.ce || 0;
+                document.getElementById('ukeCount').textContent = data.uke || 0;
+
                 // 显示详细结果
                 const detailsDiv = document.getElementById('details');
                 detailsDiv.innerHTML = '';
+
+                data.results.sort((a, b) => a.id - b.id);
+
                 data.results.forEach(r => {
                     const div = document.createElement('div');
-                    div.className = 'detail-item ' + r.result.toLowerCase();
-                    div.textContent = `[${r.result}] ${r.message}`;
+                    div.className = 'detail-item ' + getResultClass(r.result);
+
+                    const hasFiles = r.files_saved || (r.result !== 'AC' && r.result !== 'UKE' && r.result !== 'CE');
+
+                    div.innerHTML = `
+                        <div class="detail-header">
+                            <span class="detail-title">[${r.result}] Task ${r.id}</span>
+                            ${hasFiles ? generateDownloadButtons(r.id, r.files_saved) : ''}
+                        </div>
+                        <div class="detail-message">${r.message}</div>
+                    `;
+
                     detailsDiv.appendChild(div);
                 });
-                
+
                 document.getElementById('results').style.display = 'block';
-                
+                detailsVisible = false;
+                document.getElementById('details').style.display = 'none';
+                document.querySelector('.toggle-details').textContent = '📋 显示/隐藏详细结果';
+
             } catch (error) {
                 alert('请求失败: ' + error.message);
             } finally {
-                document.getElementById('submitBtn').disabled = false;
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '开始并行评测';
                 setTimeout(() => {
                     document.getElementById('progress').style.display = 'none';
                 }, 500);
@@ -369,4 +770,5 @@
         });
     </script>
 </body>
+
 </html>

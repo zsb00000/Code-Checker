@@ -3,7 +3,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
+#include <direct.h>
 #include <fstream>
+#include <io.h>
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -13,14 +15,71 @@
 
 using namespace std;
 
-const int UNKNOWN_TIME_LIMIT_MS = 2000;
+const vector<string> SUPPORTED_STDS = {"c++98", "c++11", "c++14", "c++17",
+                                       "c++20"};
+
+const int DEFAULT_UNKNOWN_TIME_LIMIT_MS = 2000;
+const int DEFAULT_UNKNOWN_MEMORY_LIMIT_MB = 512;
 const int ANS_TIME_LIMIT_MS = 60000;
+const int ANS_MEMORY_LIMIT_MB = 4096;
+const int MAKE_TIME_LIMIT_MS = 5000;
+
+enum ErrorType
+{
+    AC = 0,
+    WA = 1,
+    RE = 2,
+    TLE = 3,
+    MLE = 4,
+    CE = 5,
+    UKE = 6
+};
 
 struct JudgeResult
 {
     int id;
     string result;
     string message;
+    string std_version;
+    ErrorType error_type;
+    string input_data;
+    string ans_output;
+    string unk_output;
+    bool files_saved;
+    string saved_path;
+};
+
+class Logger
+{
+  private:
+    ofstream log_file;
+    int task_id;
+    string log_path;
+    mutex log_mutex;
+
+  public:
+    Logger(const string &dir, int id) : task_id(id)
+    {
+        log_path = dir + "\\task_" + to_string(id) + "_log.txt";
+        log_file.open(log_path, ios::app);
+        log_file << "=== Task " << id << " Start ===" << endl;
+    }
+    ~Logger()
+    {
+        if (log_file.is_open())
+        {
+            log_file << "=== End ===" << endl;
+            log_file.close();
+        }
+    }
+    void log(const string &msg)
+    {
+        lock_guard<mutex> lock(log_mutex);
+        if (log_file.is_open())
+            log_file << msg << endl;
+        cerr << "[Task " << task_id << "] " << msg << endl;
+    }
+    string get_log_path() const { return log_path; }
 };
 
 string json_escape(const string &s)
@@ -60,8 +119,7 @@ string random_string(int len)
     const char chars[] = "abcdefghijklmnopqrstuvwxyz0123456789";
     string s;
     static thread_local mt19937 gen(
-        chrono::steady_clock::now().time_since_epoch().count() +
-        hash<thread::id>{}(this_thread::get_id()));
+        chrono::steady_clock::now().time_since_epoch().count());
     uniform_int_distribution<> dist(0, sizeof(chars) - 2);
     for (int i = 0; i < len; ++i)
         s += chars[dist(gen)];
@@ -72,11 +130,12 @@ string create_task_dir(int task_id)
 {
     char temp_path[MAX_PATH];
     GetTempPathA(MAX_PATH, temp_path);
-    string dir = string(temp_path) + "task_" + to_string(task_id) + "_" +
-                 to_string(GetCurrentProcessId()) + "_" + random_string(10);
-    if (!CreateDirectoryA(dir.c_str(), NULL))
+    string dir = string(temp_path) + "judge_" + to_string(task_id) + "_" +
+                 to_string(GetCurrentProcessId()) + "_" + random_string(8);
+    _mkdir(dir.c_str());
+    if (_access(dir.c_str(), 0) == -1)
     {
-        cerr << "Failed to create dir: " << dir << endl;
+        cerr << "Failed to create: " << dir << endl;
         exit(1);
     }
     return dir;
@@ -84,404 +143,478 @@ string create_task_dir(int task_id)
 
 bool copy_file_safe(const string &src, const string &dst)
 {
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 3; ++i)
     {
         ifstream in(src, ios::binary);
         ofstream out(dst, ios::binary | ios::trunc);
         if (in && out)
         {
             out << in.rdbuf();
-            out.flush();
             out.close();
-            in.close();
-            // 验证
-            ifstream verify(dst, ios::binary | ios::ate);
-            if (verify && verify.tellg() > 0)
+            ifstream check(dst, ios::binary | ios::ate);
+            if (check && check.tellg() > 0)
                 return true;
         }
-        Sleep(20);
+        Sleep(50);
     }
     return false;
 }
 
-// 编译：使用 system()（可靠，能搜索 PATH）
-bool compile_in_dir(const string &dir, const string &src, const string &exe,
-                    string &err)
+void remove_directory(const string &dir)
 {
-    string exe_path = dir + "\\" + exe + ".exe";
-    string src_path = dir + "\\" + src;
-    string err_path = dir + "\\" + exe + "_err.txt";
+    string cmd = "rd /S /Q \"" + dir + "\" 2>nul";
+    system(cmd.c_str());
+}
 
-    // 使用 system 调用 g++，能正确搜索 PATH
-    string cmd = "g++ -O2 -std=c++17 -o \"" + exe_path + "\" \"" + src_path +
-                 "\" 2>\"" + err_path + "\"";
+void ensure_dir(const string &dir)
+{
+    size_t pos = 0;
+    while ((pos = dir.find_first_of("\\/", pos)) != string::npos)
+    {
+        string sub = dir.substr(0, pos);
+        if (!sub.empty())
+            _mkdir(sub.c_str());
+        ++pos;
+    }
+    _mkdir(dir.c_str());
+}
+
+bool compile(const string &dir, const string &src, const string &exe,
+             const string &std_v, string &err, Logger &log)
+{
+    string cmd = "g++ -O2 -std=" + std_v + " -o \"" + dir + "\\" + exe +
+                 ".exe\" \"" + dir + "\\" + src + "\" 2>\"" + dir + "\\" + exe +
+                 "_err.txt\"";
+    log.log("Compile cmd: " + cmd);
 
     int ret = system(cmd.c_str());
     if (ret != 0)
     {
-        ifstream f(err_path);
+        ifstream f(dir + "\\" + exe + "_err.txt");
         stringstream b;
         b << f.rdbuf();
         err = b.str();
-        if (err.length() > 150)
-            err = err.substr(0, 150) + "...";
+        log.log("Compile failed: " + err.substr(0, 100));
         return false;
     }
+    log.log("Compile OK");
     return true;
 }
 
-// 运行：使用 cmd.exe /c 进行重定向，避免句柄继承问题
-int run_with_redirect(const string &dir, const string &exe, const string &input,
-                      const string &output, int time_limit, bool limit_mem)
+struct RunResult
 {
+    int exit_code;
+    string err_msg;
+};
 
-    string exe_path = dir + "\\" + exe + ".exe";
-    string in_path = dir + "\\" + input;
-    string out_path = dir + "\\" + output;
+RunResult run_program(const string &dir, const string &prog,
+                      const string &in_file, const string &out_file,
+                      int time_ms, int mem_mb, Logger &log)
+{
+    RunResult res = {0, ""};
 
-    // 等待输入文件就绪
+    string exe = dir + "\\" + prog + ".exe";
+    string input = in_file.empty() ? "" : (dir + "\\" + in_file);
+    string output = dir + "\\" + out_file;
+    string err_file = dir + "\\" + prog + "_err.txt";
+
+    log.log("Run: " + prog + " timeout=" + to_string(time_ms));
+
+    SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE};
+
+    HANDLE hOut = CreateFileA(output.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                              &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hOut == INVALID_HANDLE_VALUE)
+    {
+        log.log("Failed to create output file");
+        return {-1, "Cannot create output"};
+    }
+
+    HANDLE hIn = INVALID_HANDLE_VALUE;
     if (!input.empty())
     {
-        for (int i = 0; i < 50; ++i)
+        hIn = CreateFileA(input.c_str(), GENERIC_READ, FILE_SHARE_READ, &sa,
+                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hIn == INVALID_HANDLE_VALUE)
         {
-            if (GetFileAttributesA(in_path.c_str()) != INVALID_FILE_ATTRIBUTES)
-            {
-                // 检查文件是否被锁定（尝试打开）
-                HANDLE hTest =
-                    CreateFileA(in_path.c_str(), GENERIC_READ, 0, NULL,
-                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (hTest != INVALID_HANDLE_VALUE)
-                {
-                    CloseHandle(hTest);
-                    break;
-                }
-            }
-            Sleep(10);
+            CloseHandle(hOut);
+            log.log("Failed to open input: " + input);
+            return {-1, "Cannot open input"};
         }
     }
 
-    // 构建命令：cmd.exe /c "program < in > out"
-    string cmd = "cmd.exe /c \"\"" + exe_path + "\"";
-    if (!input.empty())
-        cmd += " < \"" + in_path + "\"";
-    cmd += " > \"" + out_path + "\"\"";
+    HANDLE hErr = CreateFileA(err_file.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                              &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
     STARTUPINFOA si = {sizeof(si)};
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi = {0};
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = hIn;
+    si.hStdOutput = hOut;
+    si.hStdError = (hErr != INVALID_HANDLE_VALUE) ? hErr : hOut;
 
-    if (!CreateProcessA(NULL, const_cast<char *>(cmd.c_str()), NULL, NULL,
-                        FALSE, // FALSE = 不继承句柄
-                        CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, NULL,
-                        dir.c_str(), &si, &pi))
+    PROCESS_INFORMATION pi = {0};
+    string cmd = "\"" + exe + "\"";
+
+    log.log("CreateProcess: " + cmd);
+    BOOL created = CreateProcessA(
+        NULL, const_cast<char *>(cmd.c_str()), NULL, NULL, TRUE,
+        CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, dir.c_str(), &si, &pi);
+
+    if (!created)
     {
-        return -1;
+        CloseHandle(hOut);
+        if (hIn != INVALID_HANDLE_VALUE)
+            CloseHandle(hIn);
+        if (hErr != INVALID_HANDLE_VALUE)
+            CloseHandle(hErr);
+        log.log("CreateProcess failed: " + to_string(GetLastError()));
+        return {-1, "Failed to start process"};
     }
 
-    // 内存限制（仅 unknown）
     HANDLE hJob = NULL;
-    if (limit_mem)
+    if (mem_mb > 0)
     {
         hJob = CreateJobObject(NULL, NULL);
-        if (hJob)
-        {
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {0};
-            jeli.BasicLimitInformation.LimitFlags =
-                JOB_OBJECT_LIMIT_PROCESS_MEMORY;
-            jeli.ProcessMemoryLimit = 512 * 1024 * 1024;
-            SetInformationJobObject(hJob, JobObjectExtendedLimitInformation,
-                                    &jeli, sizeof(jeli));
-            AssignProcessToJobObject(hJob, pi.hProcess);
-        }
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli = {0};
+        jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        jeli.ProcessMemoryLimit = (SIZE_T)mem_mb * 1024 * 1024;
+        SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &jeli,
+                                sizeof(jeli));
+        AssignProcessToJobObject(hJob, pi.hProcess);
     }
 
+    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
 
-    DWORD wait = WaitForSingleObject(pi.hProcess, time_limit);
-    int ret = 0;
+    DWORD wait = WaitForSingleObject(pi.hProcess, time_ms);
 
     if (wait == WAIT_TIMEOUT)
     {
         TerminateProcess(pi.hProcess, 1);
-        ret = -2; // TLE
-    }
-    else if (wait == WAIT_OBJECT_0)
-    {
-        DWORD code;
-        ret = (GetExitCodeProcess(pi.hProcess, &code) && code == 0) ? 0 : -1;
+        res.exit_code = -2;
+        res.err_msg = "Time Limit Exceeded";
+        log.log("TLE");
     }
     else
     {
-        ret = -1;
-    }
-
-    CloseHandle(pi.hProcess);
-    if (hJob)
-        CloseHandle(hJob);
-
-    // 等待输出文件写入完成
-    if (ret == 0)
-    {
-        for (int i = 0; i < 50; ++i)
+        DWORD code;
+        GetExitCodeProcess(pi.hProcess, &code);
+        if (code == 0)
         {
-            WIN32_FILE_ATTRIBUTE_DATA attr;
-            if (GetFileAttributesExA(out_path.c_str(), GetFileExInfoStandard,
-                                     &attr))
-            {
-                if (attr.nFileSizeLow > 0)
-                {
-                    // 再检查一次大小是否稳定
-                    Sleep(20);
-                    WIN32_FILE_ATTRIBUTE_DATA attr2;
-                    if (GetFileAttributesExA(out_path.c_str(),
-                                             GetFileExInfoStandard, &attr2))
-                    {
-                        if (attr.nFileSizeLow == attr2.nFileSizeLow)
-                            break;
-                    }
-                }
-            }
-            Sleep(10);
+            res.exit_code = 0;
+            log.log("Exit 0");
+        }
+        else if (code == 0xC0000017 || code == 0xC0000005)
+        {
+            res.exit_code = -3;
+            res.err_msg = "Memory Limit";
+            log.log("MLE/RE code=" + to_string(code));
+        }
+        else
+        {
+            res.exit_code = -1;
+            res.err_msg = "Runtime Error code=" + to_string(code);
+            log.log("RE code=" + to_string(code));
         }
     }
 
-    return ret;
+    CloseHandle(pi.hProcess);
+    CloseHandle(hOut);
+    if (hIn != INVALID_HANDLE_VALUE)
+        CloseHandle(hIn);
+    if (hErr != INVALID_HANDLE_VALUE)
+        CloseHandle(hErr);
+    if (hJob)
+        CloseHandle(hJob);
+
+    Sleep(50);
+
+    return res;
 }
 
-string trim_trailing(const string &s)
+string read_file(const string &f, int max = 100000)
+{
+    ifstream file(f, ios::binary | ios::ate);
+    if (!file)
+        return "";
+    auto size = min((streamsize)max, (streamsize)file.tellg());
+    file.seekg(0);
+    string s(size, '\0');
+    file.read(&s[0], size);
+    if (file.tellg() > 10000)
+        s = s.substr(0, 10000) + "\n...(truncated)";
+    return s;
+}
+
+string trim(const string &s)
 {
     size_t end = s.find_last_not_of(" \t\r\n");
     return (end == string::npos) ? "" : s.substr(0, end + 1);
 }
 
-bool compare_outputs(const string &f1, const string &f2)
+bool compare_files(const string &f1, const string &f2)
 {
-    // 确保文件存在且稳定
-    for (int i = 0; i < 20; ++i)
+    ifstream a(f1), b(f2);
+    if (!a || !b)
+        return false;
+
+    string l1, l2;
+    while (getline(a, l1) && getline(b, l2))
     {
-        WIN32_FILE_ATTRIBUTE_DATA a1, a2;
-        bool ok1 = GetFileAttributesExA(f1.c_str(), GetFileExInfoStandard, &a1);
-        bool ok2 = GetFileAttributesExA(f2.c_str(), GetFileExInfoStandard, &a2);
-        if (ok1 && ok2 && a1.nFileSizeLow > 0 && a2.nFileSizeLow > 0)
-        {
-            Sleep(30); // 额外等待确保写入完成
-            break;
-        }
-        Sleep(50);
-    }
-
-    for (int retry = 0; retry < 5; ++retry)
-    {
-        ifstream file1(f1), file2(f2);
-        if (!file1 || !file2)
-        {
-            Sleep(50);
-            continue;
-        }
-
-        vector<string> l1, l2;
-        string line;
-        while (getline(file1, line))
-            l1.push_back(trim_trailing(line));
-        while (getline(file2, line))
-            l2.push_back(trim_trailing(line));
-
-        while (!l1.empty() && l1.back().empty())
-            l1.pop_back();
-        while (!l2.empty() && l2.back().empty())
-            l2.pop_back();
-
-        if (l1.size() != l2.size())
+        if (trim(l1) != trim(l2))
             return false;
-        bool same = true;
-        for (size_t i = 0; i < l1.size(); ++i)
-            if (l1[i] != l2[i])
-            {
-                same = false;
-                break;
-            }
-
-        if (same)
-            return true;
-        Sleep(50);
     }
-    return false;
+    if (getline(a, l1) || getline(b, l2))
+    {
+        do
+        {
+            if (trim(l1) != "")
+                return false;
+        } while (getline(a, l1));
+        do
+        {
+            if (trim(l2) != "")
+                return false;
+        } while (getline(b, l2));
+    }
+    return true;
 }
 
-JudgeResult judge_task(int task_id, const string &make_src,
-                       const string &ans_src, const string &unknown_src)
+bool save_files(const string &work, const string &save, int id,
+                const JudgeResult &res, Logger &log)
+{
+    if (save.empty())
+        return false;
+
+    string d = save + "\\task_" + to_string(id);
+    ensure_dir(d);
+
+    ofstream(d + "\\input.txt") << res.input_data;
+    ofstream(d + "\\expected.txt") << res.ans_output;
+    ofstream(d + "\\output.txt") << res.unk_output;
+    copy_file_safe(log.get_log_path(), d + "\\log.txt");
+
+    ofstream sum(d + "\\summary.txt");
+    sum << "Task: " << id << "\nResult: " << res.result
+        << "\nMsg: " << res.message;
+
+    log.log("Saved to " + d);
+    return true;
+}
+
+JudgeResult judge(int id, const string &make, const string &ans,
+                  const string &unk, const string &std_v, int time_ms,
+                  int mem_mb, const string &save)
 {
     JudgeResult res;
-    res.id = task_id;
-    string work_dir = create_task_dir(task_id);
+    res.id = id;
+    res.std_version = std_v;
+    res.files_saved = false;
+
+    string dir = create_task_dir(id);
+    Logger log(dir, id);
+
+    log.log("Judge start in " + dir);
 
     try
     {
-        // 复制源文件
-        if (!copy_file_safe(make_src, work_dir + "\\make.cpp") ||
-            !copy_file_safe(ans_src, work_dir + "\\ans.cpp") ||
-            !copy_file_safe(unknown_src, work_dir + "\\unknown.cpp"))
+        if (!copy_file_safe(make, dir + "\\make.cpp") ||
+            !copy_file_safe(ans, dir + "\\ans.cpp") ||
+            !copy_file_safe(unk, dir + "\\unknown.cpp"))
         {
-            throw runtime_error("File copy failed");
+            throw runtime_error("Copy failed");
         }
 
         string err;
-        // 编译三个文件
-        if (!compile_in_dir(work_dir, "make.cpp", "make", err))
+        if (!compile(dir, "make.cpp", "make", std_v, err, log))
         {
-            res.result = "UKE";
-            res.message =
-                "Task " + to_string(task_id) + " make compile: " + err;
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
+            res = {id,    "CE", "make.cpp compile error", std_v, CE, "", "", "",
+                   false, ""};
+            remove_directory(dir);
+            return res;
+        }
+        if (!compile(dir, "ans.cpp", "ans", std_v, err, log))
+        {
+            res = {id,    "CE", "ans.cpp compile error", std_v, CE, "", "", "",
+                   false, ""};
+            remove_directory(dir);
+            return res;
+        }
+        if (!compile(dir, "unknown.cpp", "unknown", std_v, err, log))
+        {
+            res = {
+                id,    "CE", "unknown.cpp compile error", std_v, CE, "", "", "",
+                false, ""};
+            remove_directory(dir);
             return res;
         }
 
-        if (!compile_in_dir(work_dir, "ans.cpp", "ans", err))
+        auto r1 =
+            run_program(dir, "make", "", "data.in", MAKE_TIME_LIMIT_MS, 0, log);
+        if (r1.exit_code != 0)
         {
-            res.result = "UKE";
-            res.message = "Task " + to_string(task_id) + " ans compile error";
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
+            res = {id,    "UKE", "make failed: " + r1.err_msg,
+                   std_v, UKE,   "",
+                   "",    "",    false,
+                   ""};
+            remove_directory(dir);
             return res;
         }
 
-        if (!compile_in_dir(work_dir, "unknown.cpp", "unknown", err))
+        string data_in = read_file(dir + "\\data.in");
+
+        auto r2 = run_program(dir, "ans", "data.in", "data.ans",
+                              ANS_TIME_LIMIT_MS, ANS_MEMORY_LIMIT_MB, log);
+        if (r2.exit_code != 0)
         {
-            res.result = "UKE";
-            res.message =
-                "Task " + to_string(task_id) + " unknown compile error";
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
+            res = {id,    "UKE", "ans failed: " + r2.err_msg,
+                   std_v, UKE,   data_in,
+                   "",    "",    false,
+                   ""};
+            remove_directory(dir);
             return res;
         }
 
-        // 运行 make
-        if (run_with_redirect(work_dir, "make", "", "out1", 5000, false) != 0)
-        {
-            res.result = "UKE";
-            res.message = "Task " + to_string(task_id) + " make runtime error";
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
-            return res;
-        }
+        auto r3 = run_program(dir, "unknown", "data.in", "data.out", time_ms,
+                              mem_mb, log);
 
-        // 运行 ans（不限制）
-        if (run_with_redirect(work_dir, "ans", "out1", "std", ANS_TIME_LIMIT_MS,
-                              false) != 0)
-        {
-            res.result = "UKE";
-            res.message = "Task " + to_string(task_id) + " ans runtime error";
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
-            return res;
-        }
+        string ans_out = read_file(dir + "\\data.ans");
+        string unk_out = read_file(dir + "\\data.out");
 
-        // 运行 unknown（限制资源）
-        int unk_ret = run_with_redirect(work_dir, "unknown", "out1", "out2",
-                                        UNKNOWN_TIME_LIMIT_MS, true);
-        if (unk_ret == -2)
+        if (r3.exit_code == -2)
         {
-            res.result = "UKE";
-            res.message = "Task " + to_string(task_id) + " unknown TLE";
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
-            return res;
+            res = {id,      "TLE",   "Time Limit Exceeded",
+                   std_v,   TLE,     data_in,
+                   ans_out, unk_out, false,
+                   ""};
         }
-        if (unk_ret != 0)
+        else if (r3.exit_code == -3)
         {
-            res.result = "UKE";
-            res.message = "Task " + to_string(task_id) + " unknown RE/MLE";
-            system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
-            return res;
+            res = {id,      "MLE",   "Memory Limit Exceeded",
+                   std_v,   MLE,     data_in,
+                   ans_out, unk_out, false,
+                   ""};
         }
-
-        // 比对
-        if (compare_outputs(work_dir + "\\std", work_dir + "\\out2"))
+        else if (r3.exit_code != 0)
         {
-            res.result = "AC";
-            res.message = "Task " + to_string(task_id) + " Accepted";
+            res = {id,      "RE",    "Runtime Error", std_v, RE,
+                   data_in, ans_out, unk_out,         false, ""};
         }
         else
         {
-            res.result = "WA";
-            res.message = "Task " + to_string(task_id) + " Wrong Answer";
+            if (compare_files(dir + "\\data.ans", dir + "\\data.out"))
+            {
+                res = {id,      "AC",    "Accepted", std_v, AC,
+                       data_in, ans_out, unk_out,    false, ""};
+            }
+            else
+            {
+                res = {id,      "WA",    "Wrong Answer", std_v, WA,
+                       data_in, ans_out, unk_out,        false, ""};
+            }
+        }
+
+        if (res.error_type != AC)
+        {
+            if (save_files(dir, save, id, res, log))
+            {
+                res.files_saved = true;
+                res.saved_path = save + "\\task_" + to_string(id);
+            }
         }
     }
-    catch (const exception &e)
+    catch (exception &e)
     {
-        res.result = "UKE";
-        res.message =
-            string("Task ") + to_string(task_id) + " exception: " + e.what();
+        log.log("Exception: " + string(e.what()));
+        res = {id,    "UKE", string("Exception: ") + e.what(),
+               std_v, UKE,   "",
+               "",    "",    false,
+               ""};
     }
 
-    system(("rmdir /S /Q \"" + work_dir + "\" 2>nul").c_str());
+    remove_directory(dir);
     return res;
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc != 5)
+    if (argc != 9)
     {
         cerr << "Usage: " << argv[0]
-             << " <make.cpp> <ans.cpp> <unknown.cpp> <k>" << endl;
+             << " make.cpp ans.cpp unknown.cpp k std time mem savedir" << endl;
         return 1;
     }
 
-    string make_src = argv[1];
-    string ans_src = argv[2];
-    string unknown_src = argv[3];
+    string make = argv[1], ans = argv[2], unk = argv[3];
     int k = atoi(argv[4]);
+    string std_v = argv[5];
+    int time = atoi(argv[6]), mem = atoi(argv[7]);
+    string save = argv[8];
 
-    if (k <= 0 || k >= 50)
+    transform(std_v.begin(), std_v.end(), std_v.begin(), ::tolower);
+    if (find(SUPPORTED_STDS.begin(), SUPPORTED_STDS.end(), std_v) ==
+        SUPPORTED_STDS.end())
     {
-        cerr << "k must be 1-49" << endl;
+        cerr << "Bad std: " << std_v << endl;
         return 1;
     }
 
-    replace(make_src.begin(), make_src.end(), '/', '\\');
-    replace(ans_src.begin(), ans_src.end(), '/', '\\');
-    replace(unknown_src.begin(), unknown_src.end(), '/', '\\');
+    if (!save.empty())
+    {
+        replace(save.begin(), save.end(), '/', '\\');
+        ensure_dir(save);
+    }
 
-    int threads = min(k, 4);
-    ThreadPool pool(threads);
+    replace(make.begin(), make.end(), '/', '\\');
+    replace(ans.begin(), ans.end(), '/', '\\');
+    replace(unk.begin(), unk.end(), '/', '\\');
 
-    vector<future<JudgeResult>> futures;
+    int T = min(k, 4);
+    ThreadPool pool(T);
+
+    vector<future<JudgeResult>> futs;
     for (int i = 0; i < k; ++i)
     {
-        futures.push_back(
-            pool.enqueue(judge_task, i, make_src, ans_src, unknown_src));
+        futs.push_back(
+            pool.enqueue(judge, i, make, ans, unk, std_v, time, mem, save));
     }
 
-    vector<JudgeResult> results;
-    int ac = 0, wa = 0, uke = 0;
+    vector<JudgeResult> rs;
+    int cnt[7] = {0};
 
-    for (auto &f : futures)
+    for (auto &f : futs)
     {
-        JudgeResult r = f.get();
-        results.push_back(r);
-        if (r.result == "AC")
-            ac++;
-        else if (r.result == "WA")
-            wa++;
-        else
-            uke++;
+        auto r = f.get();
+        rs.push_back(r);
+        cnt[r.error_type]++;
     }
 
     cout << "{" << endl;
     cout << "  \"total\": " << k << "," << endl;
-    cout << "  \"ac\": " << ac << "," << endl;
-    cout << "  \"wa\": " << wa << "," << endl;
-    cout << "  \"uke\": " << uke << "," << endl;
+    cout << "  \"ac\": " << cnt[0] << "," << endl;
+    cout << "  \"wa\": " << cnt[1] << "," << endl;
+    cout << "  \"re\": " << cnt[2] << "," << endl;
+    cout << "  \"tle\": " << cnt[3] << "," << endl;
+    cout << "  \"mle\": " << cnt[4] << "," << endl;
+    cout << "  \"ce\": " << cnt[5] << "," << endl;
+    cout << "  \"uke\": " << cnt[6] << "," << endl;
+    cout << "  \"std_version\": \"" << std_v << "\"," << endl;
+    cout << "  \"time_limit\": " << time << "," << endl;
+    cout << "  \"memory_limit\": " << mem << "," << endl;
     cout << "  \"results\": [" << endl;
 
-    for (size_t i = 0; i < results.size(); ++i)
+    for (size_t i = 0; i < rs.size(); ++i)
     {
-        cout << "    {\"id\": " << results[i].id << ", \"result\": \""
-             << results[i].result << "\", \"message\": \""
-             << json_escape(results[i].message) << "\"}";
-        if (i + 1 < results.size())
+        cout << "    {\"id\": " << rs[i].id << ", \"result\": \""
+             << rs[i].result << "\", \"message\": \""
+             << json_escape(rs[i].message) << "\", \"std\": \""
+             << rs[i].std_version << "\", \"files_saved\": "
+             << (rs[i].files_saved ? "true" : "false") << "}";
+        if (i + 1 < rs.size())
             cout << ",";
         cout << endl;
     }
-
-    cout << "  ]" << endl;
-    cout << "}" << endl;
+    cout << "  ]" << endl << "}" << endl;
 
     return 0;
 }
